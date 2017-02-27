@@ -4,4 +4,19 @@
 и нельзя их использовать вместе.
 
 В действительности эти вещи независимы друг от друга, и могут применяться вместе, как это происходит в LINQ. Чтобы убедиться в этом,
-реализует методы `Map`, `Reduce` и `Filter` для интерфейса `IIterator<T>`.
+реализуем методы `Map`, `Reduce` и `Filter` для интерфейса `IIterator<T>`.
+
+## `Map`
+
+public static class IteratorExtensions
+{
+  public static IIterator<T> Map(this IIterator<T>, Func<T, TResult> mapper)
+  {
+  
+  }
+  
+  private class MapIterator<out T> : IIterator<T>
+  {
+  
+  }
+}
