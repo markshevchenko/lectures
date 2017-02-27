@@ -71,6 +71,47 @@ public static class ArrayExtensions
 }
 ```
 
+```javascript
+"use strict";
+
+class Iterator {
+  constructor() {
+  }
+  
+  get current() {
+    throw new Error("Property 'current' is not overriden.");
+  }
+  
+  get hasNext() {
+    throw new Error("Property 'hasNext' is not overriden.");
+  }
+    
+  next() {
+    throw new Error("Method 'next' is not overriden.");
+  }
+}
+
+class ArrayIterator extends Iterator {
+  constructor(a) {
+    super();
+    this._a = a;
+    this._i = 0;
+  }
+
+  get current() {
+    return this._a[this._i];
+  }
+  
+  get hasNext() {
+    return this._i <  this._a.length;
+  }
+    
+  next() {
+    this._i++;
+  }
+}
+```
+
 ## Обсуждение
 
 *Адаптер*&nbsp;&mdash; структурный паттерн из GoF, описан на стр. 141.
