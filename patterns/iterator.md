@@ -195,7 +195,7 @@ while (i != aggregate.end())
    {
      T Current { get; }
 
-     bool HasNext();
+     bool HasNext { get; }
 
      void MoveNext();
    }
