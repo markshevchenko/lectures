@@ -2,45 +2,6 @@
 
 Паттерн *Адаптер* это переходник между двумя интерфейсами.
 
-## Реализация *Адаптера* между &laquo;нашим&raquo; *Итератором* и *Итератором* из .NET (C#)
-
-```c#
-public interface IIterator<out T>
-{
-  T Current { get; }
-  
-  bool HasNext { get; }
-  
-  void MoveNext();
-}
-
-public static class EnumeratorExtensions
-{
-  public static IIterator<T> ToIterator<out T>(this IEnumerator<T> enumerator)
-  {
-    return new EnumeratorAdapter<T>(enumerator);
-  }
-  
-  private class EnumeratorAdapter<out T> : IIterator<T>
-  {
-    private readonly IEnumerator<T> _enumerator;
-    
-    public EnumeratorAdapter(IEnumerator<T> enumerator)
-    {
-      _enumerator = enumerator;
-      
-      MoveNext();
-    }
-    
-    public T Current => _enumerator.Current;
-    
-    public bool HasNext { get; private set; }
-    
-    public void MoveNext() => { HasNext = _enumerator.MoveNext(); }
-  }
-}
-```
-
 ## Реализация *Адаптера* между *Итератором* и *Многострочным текстом* (JavaScript)
 
 ```javascript
