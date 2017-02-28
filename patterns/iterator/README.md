@@ -64,7 +64,7 @@ NODE* find(NODE* head, int element)
 {
     for (NODE* i = head, i != NULL && i->element != element; i = i->next)
       ;
-      
+     
     return i;
 }
 ```
@@ -113,7 +113,7 @@ while (i.hasNext())
 
 Метод `remove()` используется для удаления элемента из агрегата. Предполагается, что речь идёт о безопасном удалении.
 
-### C\#
+### C# #
 
 ```c#
 public interface IEnumerable<out T>
