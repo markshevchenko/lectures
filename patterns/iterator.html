@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>Иллюстрация паттернов Итератор, Адаптер и Декоратор</title>
+    <script>
+    'use strict';
+
+    class Iterator {
+      constructor() { }
+
+      get current() { throw new Error("Property 'current' is not overriden.") }
+
+      get hasNext() { throw new Error("Property 'hasNext' is not overriden.") }
+
+      next() { throw new Error("Method 'next' is not overriden.") }
+
+      map(f) { return new MapIteratorDecorator(this, f) }
+      
+      filter(predicate) { return new FilterIteratorDecorator(this, predicate) }
+    }
+
+    class MultilineIteratorAdapter extends Iterator {
+      constructor(multiline) {
+        super();
+
+        this._lines = multiline.split('\n');
+        this._index = 0;
+      }
+
+      get current() { return this._lines[this._index] }
+
+      get hasNext() { return this._index < this._lines.length }
+
+      next() { this._index++ }
+    }
+
+    class MapIteratorDecorator extends Iterator {
+      constructor(iterator, f) {
+        super();
+        this._iterator = iterator;
+        this._f = f;
+      }
+
+      get current() { return this._f(this._iterator.current) }
+
+      get hasNext() { return this._iterator.hasNext }
+
+      next() { this._iterator.next() }
+    }
+
+    class FilterIteratorDecorator extends Iterator {
+      constructor(iterator, predicate) {
+        super();
+        this._iterator = iterator;
+        this._predicate = predicate;
+
+        this._skip();
+      }
+
+      _skip() {
+        while (this._iterator.hasNext && !this._predicate(this._iterator.current))
+          this._iterator.next();
+
+        this._hasNext = this._iterator.hasNext;
+      }
+
+      get current() { return this._iterator.current }
+
+      get hasNext() { return this._hasNext }
+
+      next() {
+        this._iterator.next();
+        this._skip();
+      }
+    }
+
+    window.onload = function() {
+      var demo = document.getElementById('demo');
+
+      demo.addEventListener('click', function() {
+        var input = document.getElementById('input');
+        var iterator = new MultilineIteratorAdapter(input.value).map(parseInt)
+                                                                .filter(i => i % 2 == 0)
+                                                                .map(i => i * i);
+
+        var output = document.getElementById('output');
+        output.value = '';
+
+        while (iterator.hasNext) {
+          output.value += iterator.current + '\n';
+
+          iterator.next();
+        }
+      }, false);
+    }
+    </script>
+  </head>
+  <body>
+    <label for="input">Вводите целые числа по одному на каждой строке:</label><br />
+    <textarea id="input" name="input" rows="20" cols="80"></textarea>
+    <hr />
+    <p>При нажатии на кнопку <kbd>Запустить</kbd> паттерн <em>Адаптер</em> превратит многострочный текст в <em>Итератор</em> целых чисел.
+    После этого <em>Итератор-Декоратор</em> выделит среди них чётные, а следующий за ним <em>Итератор-Декоратор</em> возведёт их в квадрат.</p>
+    <button id="demo">Запустить</button>
+    <hr />
+    <label for="output">Результат преобразования:</label><br />
+    <textarea id="output" name="output" rows="20" cols="80" readonly></textarea>
+  </body>
+</html>
