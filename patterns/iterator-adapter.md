@@ -2,7 +2,7 @@
 
 Паттерн *Адаптер* это переходник между двумя интерфейсами.
 
-## Реализация *Адаптера* между *Итератором* и *Перечислителем*
+## Реализация *Адаптера* между &laquo;нашим&raquo; *Итератором* и *Итератором* из .NET (C#)
 
 ```c#
 public interface IIterator<out T>
@@ -41,74 +41,34 @@ public static class EnumeratorExtensions
 }
 ```
 
-## Реализация *Адаптера* между *Итератором* и *Массивом*
-
-```c#
-public static class ArrayExtensions
-{
-  public static IIterator<T> ToIterator<out T>(this IReadOnlyList<T> array)
-  {
-    return new ReadOnlyListAdapter<T>(array);
-  }
-  
-  private class ReadOnlyListAdapter<out T> : IIterator<T>
-  {
-    private readonly IReadOnlyList<T> _array;
-    private int _index;
-    
-    public ReadOnlyListAdapter(IReadOnlyList<T> array)
-    {
-      _array = array;
-      _index = 0;
-    }
-    
-    public T Current => _array[_index];
-    
-    public bool HasNext => _index < _array.Length;
-    
-    public void MoveNext() => { _index++; }
-  }
-}
-```
+## Реализация *Адаптера* между *Итератором* и *Многострочным текстом* (JavaScript)
 
 ```javascript
-"use strict";
+'use strict';
 
 class Iterator {
-  constructor() {
-  }
-  
-  get current() {
-    throw new Error("Property 'current' is not overriden.");
-  }
-  
-  get hasNext() {
-    throw new Error("Property 'hasNext' is not overriden.");
-  }
-    
-  next() {
-    throw new Error("Method 'next' is not overriden.");
-  }
+  constructor() { }
+
+  get current() { throw new Error("Property 'current' is not overriden.") }
+
+  get hasNext() { throw new Error("Property 'hasNext' is not overriden.") }
+
+  next() { throw new Error("Method 'next' is not overriden.") }
 }
 
-class ArrayIterator extends Iterator {
-  constructor(a) {
+class MultilineIteratorAdapter extends Iterator {
+  constructor(multiline) {
     super();
-    this._a = a;
-    this._i = 0;
+
+    this._lines = multiline.split('\n');
+    this._index = 0;
   }
 
-  get current() {
-    return this._a[this._i];
-  }
-  
-  get hasNext() {
-    return this._i <  this._a.length;
-  }
-    
-  next() {
-    this._i++;
-  }
+  get current() { return this._lines[this._index] }
+
+  get hasNext() { return this._index < this._lines.length }
+
+  next() { this._index++ }
 }
 ```
 
@@ -125,7 +85,7 @@ class ArrayIterator extends Iterator {
 Он, с одной стороны, реализует интерфейс или абстрактный класс, а с другой&nbsp;&mdash; получает интерфейс или абстрактный класс
 в конструкторе. Несколько *Адаптеров* можно объединить в цепочку, если типы их входных и выходных интерфейсов совместимы.
 В этом *Адаптер* похож на *Декоратор* с той разницей, что тип входного и выходного интерфейса у *Декоратора* один и тот же. Иногда
-внутри может быть конкретный класс, но снаружи *Адаптер* всегда реализует интерфейс.
+внутри *Адаптера* может быть конкретный класс, но снаружи *Адаптер* всегда реализует интерфейс.
 
 2. У *Адаптера* один входной и один выходной интерфейс. Если за выходным интерфейсом мы прячем несколько входных, тогда
 речь идёт о паттерне *Фасад*.
