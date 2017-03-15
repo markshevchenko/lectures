@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>Иллюстрация принципа Инверсии Зависимости и паттерна Стратегия</title>
+    <style>
+    .form {
+      display: table;
+    }
+    label {
+      display: table-row;
+    }
+    label > span,
+    label > input,
+    label > textarea {
+      display: table-cell;
+      vertical-align: top;
+    }
+    button {
+      display: table-row;
+    }
+    </style>
+  </head>
+  <body>
+    <h1>Инверсия Зависимости и паттерн Стратегия</h1>
+    <h2>Маршрут</h2>
+    <div class="form">
+        <label><span>Откуда</span> <input id="from" type="text" size="80" value="" /></label>
+        <label><span>Куда</span> <input id="to" type="text" size="80" value="" /></label>
+        <label><span>Maps Key</span> <input id="maps-key" type="text" size="80" value="" /></label>
+        <button id="build-route">Рассчитать маршрут</button>
+        <label><span>Маршрут</span> <textarea id="route" rows="20" cols="80" readonly></textarea></label>
+    </div>
+
+    <h2>Стоимость</h2>
+    <div class="form">
+    <label><span>Стратегия расчёта цены</span>
+      <select id="price-calculation-strategy">
+        <option value="kilometers" selected>Километры</option>
+        <option value="minutes">Минуты</option>
+        <option value="kilometers-and-minutes">Километры и минуты</option>
+        <option value="kilometers-but-minutes-in-traffic">Километры, но в пробке минуты</option>
+      </select>
+    </label>
+
+    <label><span>Стоимость километра</span> <input id="kilometer-cost" type="text" size="80" value="15" /></label>
+    <label><span>Стоимость минуты</span> <input id="minute-cost" type="text" size="80" value="10" /></label>
+    <button id="calculate-price" disabled>Рассчитать стоимость поездки</button>
+    <label><span>Стоимость поездки</span> <input id="price" type="text" readonly size="80" /></label>
+    </div>
+    <script>
+    'use strict';
+
+    class PriceStrategy {
+      constructor() { }
+
+      calculate(measures) { throw new Error("Method 'calculate' is not overriden."); }
+
+      _sumKilometers(measures) { return measures.reduce((a, e) => a + e.kilometers, 0); }
+
+      _sumMinutes(measures) { return measures.reduce((a, e) => a + e.minutes, 0); }
+    }
+
+    class Tariff {
+      constructor() { }
+
+      get kilometer() { throw new Error("Property 'kilometer' is not overriden."); }
+
+      get minute() { throw new Error("Property 'minute' is not overriden."); }
+    }
+
+    class TariffProxy extends Tariff {
+      constructor(kilometerId, minuteId) {
+        super();
+
+        this.kilometerId = kilometerId;
+        this.minuteId = minuteId;
+      }
+
+      get kilometer() { return document.getElementById(this.kilometerId).value; }
+
+      get minute() { return document.getElementById(this.minuteId).value; }
+    }
+
+    class KilometersStrategy extends PriceStrategy
+    {
+      constructor(tariff) {
+        super();
+
+        this.tariff = tariff;
+      }
+
+      calculate(measures) {
+        return this.tariff.kilometer * this._sumKilometers(measures);
+      }
+    }
+
+    class MinutesStrategy extends PriceStrategy {
+      constructor(tariff) {
+        super();
+
+        this.tariff = tariff;
+      }
+
+      calculate(measures) {
+        return this.tariff.minute * this._sumMinutes(measures);
+      }
+    }
+
+    class KilometersAndMinutesStrategy extends KilometersStrategy
+    {
+      constructor(tariff) {
+        super(tariff);
+      }
+
+      calculate(measures) {
+        return super.calculate(measures) + this.tariff.minute * this._sumMinutes(measures);
+      }
+    }
+
+    class KilometersButMinutesInTrafficStrategy extends PriceStrategy
+    {
+      constructor(tariff, trafficVelocity) {
+        super();
+
+        this.tariff = tariff;
+        this.trafficVelocity = trafficVelocity;
+      }
+
+      calculate(measures) {
+        return measures.map(measure => {
+                         var kilometers = measure.kilometers;
+                         var minutes = measure.minutes;
+                         var velocity = kilometers/(minutes/60.0);
+
+                         if (velocity > this.trafficVelocity)
+                           return kilometers * this.tariff.kilometer;
+
+                         return minutes * this.tariff.minute;
+                       })
+                       .reduce((accumulator, price) => accumulator + price, 0);
+      }
+    }
+
+    class RouteBuilder {
+      constructor() { }
+
+      build(from, to, callback) { throw new Error("Method 'build' is not overriden."); }
+    }
+
+    class MapsConfiguration {
+      get key() { throw new Error("Property 'key' is not overriden."); }
+    }
+
+    class MapsConfigurationProxy extends MapsConfiguration {
+      constructor(keyId) {
+        super();
+
+        this.keyId = keyId;
+      }
+
+      get key() { return document.getElementById(this.keyId).value; }
+    }
+
+    /* Инфраструктурный уровень: реализуем интерфейс RouteBuilder из предметной области, читаем данные из сервиса Google Maps. */
+
+    class GoogleMapsRouteBuilder extends RouteBuilder {
+      constructor(configuration) {
+        super();
+
+        this.configuration = configuration;
+      }
+
+      build(from, to, callback) {
+        var uri = 'http://cors-anywhere.herokuapp.com/maps.googleapis.com:443/maps/api/directions/json'
+                + '?origin=' + from
+                + '&destination=' + to
+                + '&key=' + this.configuration.key;
+        
+        var xhr = new XMLHttpRequest();
+        xhr.onload = function() {
+          var response = JSON.parse(xhr.responseText);
+
+          if (response.status != 'OK')
+            throw new Error('Invalid Google Maps Response status ' + response.status, ', message: ' + response.error_message);
+
+          var measures = response.routes[0]
+                                 .legs
+                                 .reduce((accumulator, leg) => accumulator.concat(leg.steps), [])
+                                 .map(step => ({
+                                   kilometers: step.distance.value/1000.0,
+                                   minutes: step.duration.value/60.0
+                                 }));
+
+          callback(measures);
+        };
+
+        xhr.onerror = function() {
+          throw new Error(xhr.statusText);
+        };
+
+        xhr.open('GET', uri, true);
+        xhr.send();
+      }
+    }
+
+    /* Уровено представления: обращаемся к элементам управления за данными и сохраняем данные в элементах управления. */
+
+    function buildRoute(routeBuilder) {
+      var from = document.getElementById('from')
+                         .value;
+      var to = document.getElementById('to')
+                       .value;
+
+      routeBuilder.build(from, to, function(route) {
+        document.getElementById('route').value = JSON.stringify(route);
+
+        document.getElementById('calculate-price').disabled = false;
+      });
+    }
+
+    function calculatePrice(strategies) {
+      var name = document.getElementById('price-calculation-strategy').value;
+      var strategy = strategies[name];
+      var route = JSON.parse(document.getElementById('route').value);
+      document.getElementById('price').value = strategy.calculate(route);
+    }
+
+    /* Складываем в DI-контейнер объекты для работы. */
+
+    function createResolver() {
+      const trafficVelocity = 6.0;
+      var tariff = new TariffProxy('kilometer-cost', 'minute-cost');
+      var mapsConfiguration = new MapsConfigurationProxy('maps-key');
+
+      return {
+        strategies: {
+          'kilometers': new KilometersStrategy(tariff),
+          'minutes': new MinutesStrategy(tariff),
+          'kilometers-and-minutes': new KilometersAndMinutesStrategy(tariff),
+          'kilometers-but-minutes-in-traffic': new KilometersButMinutesInTrafficStrategy(tariff, trafficVelocity)
+        },
+
+        routeBuilder: new GoogleMapsRouteBuilder(mapsConfiguration),
+      };
+    }
+
+    /* Корень композиции: извлекаем из DI-контейнера нужные объекты и используем. */
+
+    var resolver = createResolver();
+
+    document.getElementById('build-route')
+            .addEventListener('click', function() { buildRoute(resolver.routeBuilder) }, false);
+
+    document.getElementById('calculate-price')
+            .addEventListener('click', function() { calculatePrice(resolver.strategies) }, false);
+    </script>
+  </body>
+</html>
