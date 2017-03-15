@@ -204,6 +204,47 @@
       }
     }
 
+    class BingMapsRouteBuilder extends RouteBuilder {
+      constructor(configuration) {
+        super();
+
+        this.configuration = configuration;
+      }
+
+      build(from, to, callback) {
+        var uri = 'http://cors-anywhere.herokuapp.com/http://dev.virtualearth.net/REST/v1/Routes'
+                + '?wp.1=' + from
+                + '&wp.2=' + to
+                + '&key=' + this.configuration.key;
+        
+        var xhr = new XMLHttpRequest();
+        xhr.onload = function() {
+          var response = JSON.parse(xhr.responseText);
+
+          if (response.statusDescription != 'OK')
+            throw new Error('Invalid Bing Maps Response status ' + response.status, ', message: ' + response.errorDetails.join(' '));
+
+          var measures = response.resourceSets[0]
+                                 .resources[0]
+                                 .routeLegs
+                                 .reduce((accumulator, leg) => accumulator.concat(leg.itineraryItems), [])
+                                 .map(item => ({
+                                   kilometers: item.travelDistance,
+                                   minutes: item.travelDuration/60.0
+                                 }));
+
+          callback(measures);
+        };
+
+        xhr.onerror = function() {
+          throw new Error(xhr.statusText);
+        };
+
+        xhr.open('GET', uri, true);
+        xhr.send();
+      }
+    }
+
     /* Уровено представления: обращаемся к элементам управления за данными и сохраняем данные в элементах управления. */
 
     function buildRoute(routeBuilder) {
@@ -241,7 +282,9 @@
           'kilometers-but-minutes-in-traffic': new KilometersButMinutesInTrafficStrategy(tariff, trafficVelocity)
         },
 
-        routeBuilder: new GoogleMapsRouteBuilder(mapsConfiguration),
+        /* Можем менять реализацию с Google на Bing и обратно:
+        routeBuilder: new GoogleMapsRouteBuilder(mapsConfiguration), */
+        routeBuilder: new BingMapsRouteBuilder(mapsConfiguration),
       };
     }
 
