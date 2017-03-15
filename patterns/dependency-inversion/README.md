@@ -7,21 +7,24 @@
 
 ## Google Maps Directions API
 
-Мы будем обращаться к внешним сервисам для того, чтобы строить маршрут. Для начала применим Google Maps Directions API.
+Мы будем обращаться к внешним сервисам для того, чтобы строить маршрут. Сначала попробуем Google Maps Directions API.
 
-Для иллюстрации напишем код на JavaScript, чтобы его можно было запускать из браузера. К сожалению, Google Maps Directions API
+Напишем код на JavaScript, чтобы его можно было запускать из браузера. К сожалению, Google Maps Directions API
 не поддерживает CORS и не позволяет обращаться к сервису с произвольных страниц. Чтобы обойти это ограничение, мы задействуем
-сервисом [CORS anywhere](http://cors-anywhere.herokuapp.com/).
+сервис [CORS anywhere](http://cors-anywhere.herokuapp.com/).
 
 Для тестирования кода вы должны зарегистрироваться в Google как разработчик, и сгенерировать ключ в [Диспетчере API](https://console.developers.google.com/apis/library).
 
 Чтобы построить маршрут, мы будем посылать GET-запрос вида
 
-    http://cors-anywhere.herokuapp.com/maps.googleapis.com:443/maps/api/directions/json?origin={from}&destination={to}&key={key}
+```
+http://cors-anywhere.herokuapp.com/maps.googleapis.com:443/maps/api/directions/json?origin={from}&destination={to}&key={key}
+```
 
 Здесь `from`&nbsp;&mdash; адрес отправления, `to`&nbsp;&mdash; адрес назначения, и `key`&nbsp;&mdash; ключ, полученный в Диспетчере API.
 Сервис возвращает JSON-объект, в котором нас интересуют только часть полей, а именно:
 
+```json
     {
       routes: [
         {
@@ -47,7 +50,8 @@
                 . . .
               ]
             },
-            {
+
+{
               steps: [
                 {
                   distance: {
@@ -74,8 +78,29 @@
         . . .
       ]
     }
+```
 
-Directions API возвращает массив объектов `routes`, поскольку мы можем попросить несколько маршрутов на выбор. Но мы не просим, поэтому этот массив
-всегда содержит только один элемент. Маршрут состоит из массива участков `legs`, в котором тоже только один элемент, потому что мы не задавали промежуточных
-точек. Наконец, участок содержит массив шагов `steps`. Для каждого шага мы можем узнать длину в метрах (`distance.value`) и продолжительность в секундах
-(`duration.value`).
+Directions API возвращает массив объектов `routes`, поскольку мы можем попросить несколько маршрутов на выбор. Но мы не просим, поэтому этот массив всегда содержит только один элемент. Маршрут состоит из массива участков `legs`, в котором тоже только один элемент, потому что мы не задавали промежуточных точек. Наконец, участок содержит массив шагов `steps`. Для каждого шага мы можем узнать длину в метрах (`distance.value`) и продолжительность в секундах (`duration.value`).
+
+Посчитаем длину маршрута и его продолжительность:
+
+```javascript
+var meters = response.routes[0]
+                     .legs
+                     .reduce((steps, leg) => steps.concat(leg.steps), [])
+                     .maps(step => step.distance.value)
+                     .reduce((totalMeters, meters) => totalMeters + meters, 0);
+
+var seconds = response.routes[0]
+                      .legs
+                      .reduce((steps, leg) => steps.concat(leg.steps), [])
+                      .maps(step => step.duration.value)
+                      .reduce((totalSeconds, seconds) => totalSeconds + seconds, 0);
+
+```
+
+Если расчёт цены маршрута ведётся на основании стоимости километра, то она будет вычислена по формуле
+
+```javascript
+var price = kilometerPrice * meters/1000.0;
+```
