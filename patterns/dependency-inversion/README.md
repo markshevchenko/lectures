@@ -530,16 +530,16 @@ class PriceStrategy {
 ```javascript
 class KilometersStrategy extends PriceStrategy
 {
-  constructor(kilometerCost) {
+  constructor(tariff) {
     super();
 
-    this.kilometerCost = kilometerCost;
+    this.tariff = tariff;
   }
 
   calculate(segments) {
     var kilometers = segments.reduce((totalKilometers, segment) => totalKilometers + segment.kilometers, 0)
 
-    return this.kilometerCost * kilometers;
+    return this.tariff.kilometer * kilometers;
   }
 }
 ```
@@ -547,3 +547,34 @@ class KilometersStrategy extends PriceStrategy
 Паттерн *Стратегия* позволяет разорвать зависимость с алгоритмом решения задачи, если существует целое семейство алгоритмов, и клиент может выбирать один или другой.
 
 ## Паттерн Заместитель (Proxy)
+
+Ещё один полезный паттерн&nbsp;*Заместитель* (*Proxy*). Взглянем на реализацию расчёта цены по километрам из предыдущего примера. В конструктор мы передаем **тариф**,
+в котором содержится стоимость километра и стоимость минуты:
+
+```javascript
+class Tariff {
+  constructor() { }
+
+  get kilometer() { throw new Error("Property 'kilometer' is not overriden."); }
+
+  get minute() { throw new Error("Property 'minute' is not overriden."); }
+}
+```
+
+Мы не знаем, где хранятся эти цены, нам достаточно знать, что они есть. В коде нашей HTML-страницы мы хотим, чтобы эти цены вводил пользователь. Паттерн *Заместитель*
+позволяет скрыть информацию о том, где действительно хранятся данные объекта.
+
+```javascript
+class TariffProxy extends Tariff {
+  constructor(kilometerId, minuteId) {
+    super();
+
+    this.kilometerId = kilometerId;
+    this.minuteId = minuteId;
+  }
+
+  get kilometer() { return parseFloat(document.getElementById(this.kilometerId).value); }
+
+  get minute() { return parseFloat(document.getElementById(this.minuteId).value); }
+}
+```
