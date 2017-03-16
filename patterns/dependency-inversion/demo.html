@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8">
-    <title>Иллюстрация принципа Инверсии Зависимости, паттерна Стратегия и паттерна Заместитель</title>
+    <title>Иллюстрация принципа Инверсии Зависимости, и паттернов Объект Переноса Данных, Стратегия и Заместитель</title>
     <style>
     .form {
       display: table;
@@ -184,15 +184,15 @@
           if (response.status != 'OK')
             throw new Error('Invalid Google Maps Response status ' + response.status, ', message: ' + response.error_message);
 
-          var measures = response.routes[0]
-                                 .legs
-                                 .reduce((accumulator, leg) => accumulator.concat(leg.steps), [])
-                                 .map(step => ({
-                                   kilometers: step.distance.value/1000.0,
-                                   minutes: step.duration.value/60.0
-                                 }));
+          var route = response.routes[0]
+                              .legs
+                              .reduce((accumulator, leg) => accumulator.concat(leg.steps), [])
+                              .map(step => ({
+                                kilometers: step.distance.value/1000.0,
+                                minutes: step.duration.value/60.0
+                              }));
 
-          callback(measures);
+          callback(route);
         };
 
         xhr.onerror = function() {
@@ -224,16 +224,16 @@
           if (response.statusDescription != 'OK')
             throw new Error('Invalid Bing Maps Response status ' + response.status, ', message: ' + response.errorDetails.join(' '));
 
-          var measures = response.resourceSets[0]
-                                 .resources[0]
-                                 .routeLegs
-                                 .reduce((accumulator, leg) => accumulator.concat(leg.itineraryItems), [])
-                                 .map(item => ({
-                                   kilometers: item.travelDistance,
-                                   minutes: item.travelDuration/60.0
-                                 }));
+          var route = response.resourceSets[0]
+                              .resources[0]
+                              .routeLegs
+                              .reduce((accumulator, leg) => accumulator.concat(leg.itineraryItems), [])
+                              .map(item => ({
+                                kilometers: item.travelDistance,
+                                minutes: item.travelDuration/60.0
+                              }));
 
-          callback(measures);
+          callback(route);
         };
 
         xhr.onerror = function() {
