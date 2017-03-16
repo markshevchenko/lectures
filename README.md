@@ -4,5 +4,5 @@
 
 * [Итератор, Адаптер и Декоратор](patterns/iterator/README.md)
 
-* [Инверсия зависимости, Стратегия и Заместитель](patterns/dependency-inversion/README.md)
+* [Инверсия зависимости, Объект переноса данных, Стратегия и Заместитель](patterns/dependency-inversion/README.md)
 
