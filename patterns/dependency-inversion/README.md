@@ -455,9 +455,7 @@ var route = response.resourceSets[0]
 
 callback(route);
 ```
-
 Теперь наш код расчёта стоимости выглядит так:
-
 ```javascript
 function calculatePrice(route, kilometerCost) {
   var totalKilometers = route.maps(segment => segment.kilometers)
@@ -465,7 +463,7 @@ function calculatePrice(route, kilometerCost) {
 
   return kilometerCost * totalKilometers;
 }
-
+```
 Код построения маршрута:
 ```javascript
 routeBuilder.build(from, to, key, function(route) {
@@ -476,7 +474,6 @@ routeBuilder.build(from, to, key, function(route) {
   document.getElementById('price').value = price;
 });
 ```
-
 Здесь `routeBuilder`&nbsp;&mdash; переменная типа `RouteBuilder`, в которой находится экземпляр `GoogleMapsRouteBuilder` или `BingMapsRouteBuilder` в зависимости от наших нужд.
 
 ### Корень композиции
@@ -548,8 +545,7 @@ class KilometersStrategy extends PriceStrategy
 
 ## Паттерн Заместитель (Proxy)
 
-Ещё один полезный паттерн&nbsp;*Заместитель* (*Proxy*). Взглянем на реализацию расчёта цены по километрам из предыдущего примера. В конструктор мы передаем **тариф**,
-в котором содержится стоимость километра и стоимость минуты:
+Ещё один полезный паттерн&nbsp;&mdash;*Заместитель* (*Proxy*). Взглянем на реализацию расчёта цены по километрам из предыдущего примера. В конструктор мы передаем **тариф**, в котором содержится стоимость километра и стоимость минуты:
 
 ```javascript
 class Tariff {
@@ -561,8 +557,7 @@ class Tariff {
 }
 ```
 
-Мы не знаем, где хранятся эти цены, нам достаточно знать, что они есть. В коде нашей HTML-страницы мы хотим, чтобы эти цены вводил пользователь. Паттерн *Заместитель*
-позволяет скрыть информацию о том, где действительно хранятся данные объекта.
+Мы не знаем, где хранятся эти цены, нам достаточно знать, что они есть. В коде нашей HTML-страницы мы хотим, чтобы эти цены вводил пользователь. Паттерн *Заместитель* позволяет скрыть информацию о том, где действительно хранятся данные объекта.
 
 ```javascript
 class TariffProxy extends Tariff {
@@ -578,3 +573,8 @@ class TariffProxy extends Tariff {
   get minute() { return parseFloat(document.getElementById(this.minuteId).value); }
 }
 ```
+Теперь стоимость километра и минуты извлекается из полей ввода.
+
+## Заключение
+
+См. [демонстрационный пример](demo.html).
