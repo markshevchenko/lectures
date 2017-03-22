@@ -131,7 +131,7 @@ private void ChekedExecuteNonQuery(SqlCommand command, string message)
 При выполнении команды `INSERT` возникнет исключение `SqlException` со свойством `Number` равным 2601. Для уровня предметной области эта информация слишком детальна.
 Мы можем описать класс `EntityException` и создавать его в случае конфликта.
 
-Код, который будет обрабатывать это исключение, должен будет знать только об уровне предметной области и о `EntityException`.
+Код, который будет обрабатывать это исключение, должен будет знать только об уровне предметной области и об `EntityException`.
 Если мы захотим изменить СУБД, или перейти на хранилище NoSQL, нам не придётся переписывать код высокого уровня, вырезая из него обработку `SqlException`.
 
 С другой стороны, если возникла ошибка, нам нужна вся информация о её причинах, поэтому мы не должны просто так &laquo;терять&raquo; исключение низкого уровня.
@@ -149,7 +149,7 @@ private void ChekedExecuteNonQuery(SqlCommand command, string message)
 обработчиков может быть много, но на практике речь идёт об одном или двух. Почему?
 
 Рассмотрим ситуацию на примере REST-сервиса. Что делает REST-сервис в случае ошибки?
-Он возвращает [код и тексовое описание в строке статуса](http://www.w3.org/Protocols/rfc2616/rfc2616-sec6.html):
+Он возвращает [код и текстовое описание в строке статуса](http://www.w3.org/Protocols/rfc2616/rfc2616-sec6.html):
 
     HTTP/1.1 409 Confict
 
@@ -168,8 +168,8 @@ private void ChekedExecuteNonQuery(SqlCommand command, string message)
 }
 ```
 
-Метод, обрабатывающий запрос REST и есть код, который знает, что делать с исключением: если &laquo;что-то пошло не так&raquo;, надо вернуть подходящий
-код ошибки и подходящий объект JSON.
+Метод, обрабатывающий запрос REST и есть код, который знает, что делать с исключением.
+Если &laquo;что-то пошло не так&raquo;, метод возращает код ошибки и подходящий объект JSON.
 
 ```c#
 public class UserController : ApiController
@@ -196,11 +196,11 @@ public class UserController : ApiController
 }
 ```
 
-Мы видим, что каждый метод сервиса надо оборачивать в конструкцию 'try'/'catch', при этом способ обработки исключений во всех методах один и тот же.
+Мы видим, что каждый метод сервиса надо оборачивать в конструкцию `try`/`catch`, при этом способ обработки исключений во всех методах один и тот же.
 Такое решение нарушает принцип [DRY](https://ru.wikipedia.org/wiki/Don%E2%80%99t_repeat_yourself).
 
-Но в XXI веке все промышленные библиотеки позволяют внедрить глобальный обработчик, куда попадут всенеобработанные исключения.
-Здесь мы их исследуем, и вернём пользователю корректный HTTP-ответ. Код REST-запросов станет гораздо чище.
+К счастью, в XXI веке все промышленные библиотеки позволяют внедрить глобальный обработчик, который обрабатывает все необработанные исключения.
+Код REST-запросов становится чище.
 
 ```c#
 public class UserController : ApiController
@@ -289,41 +289,42 @@ class RestExceptionHandler : ExceptionHandler
 `Number` равным 2601.
 
 Эта пара исключений должна встретиться нам где-то в дереве исключений. Чтобы пройти по дереву, используем паттерн *Посетитель* (*Visitor*).
-Создадим абстрактный *Элемент* и метод расширения *Visit*:
+Создадим абстрактный *Акцептор* и метод расширения *Visit*:
 
 ```c#
-abstract class Element
+abstract class Acceptor
 {
     public abstract bool Accept(Exception exception);
 }
 
 static class ExceptionExtensions
 {
-    public static void Visit(this Exception exception, Element element)
+    public static void Visit(this Exception exception, Acceptor acceptor)
     {
-        if (element.Accept(exception))
+        if (acceptor.Accept(exception))
             return;
 
         var aggregateException = exception as AggregateException;
         if (aggregateException != null)
         {
             foreach (var innerException in aggregateException.InnerExceptions)
-                innerException.Visit(element);
+                innerException.Visit(acceptor);
 
             return;
         }
 
         if (exception.InnerException != null)
-            exception.InnerException.Visit(element);
+            exception.InnerException.Visit(acceptor);
     }
 }
 ```
 
-Здесь всё по учебнику. Если вы не понимаете, как работает этот код, обратитесь к описанию паттерна *Посетитель* в книге банды четырёх (GoF).
-Последнее, что нам осталось: реализовать конкретный *Элемент*, который будет собирать информацию об ошибке.
+Здесь всё по учебнику. Если вы не понимаете, как работает этот код, обратитесь к описанию паттерна *Посетитель* в
+[книге банды четырёх (GoF)](https://books.google.ru/books/about/%D0%9F%D1%80%D0%B8%D0%B5%D0%BC%D1%8B_%D0%BE%D0%B1%D1%8A%D0%B5%D0%BA%D1%82%D0%BD%D0%BE_%D0%BE%D1%80%D0%B8%D0%B5%D0%BD.html?id=HN2IkgAACAAJ&redir_esc=y).
+Последнее, что нам осталось: реализовать конкретный *Акцептор*, который будет собирать информацию об ошибке.
 
 ```c#
-class RestErrorElement : Element
+class RestErrorAcceptor : Acceptor
 {
     public HttpStatusCode Status { get; protected set; }
 
@@ -347,9 +348,9 @@ class RestErrorElement : Element
                 {
                     Status = HttpStatusCode.Conflict;
 
-                    if (entityException.EntityType == typeof (User))
+                    if (entityException.EntityType == typeof(User))
                         Title = "Пользователь с таким электронным адресом уже существует.";
-                    else if (entityException.EntityType == typeof (Document))
+                    else if (entityException.EntityType == typeof(Document))
                         Title = "Документ с таким названием уже существует.";
                     else
                         Title = "Сущность с таким названием уже существует.";
@@ -357,20 +358,160 @@ class RestErrorElement : Element
                     return true;
                 }
             }
+
+            var invalidOperationException = exception.InnerException as InvalidOperationException;
+            if (invalidOperationException != null)
+            {
+                Status = HttpStatusCode.NotFound;
+                
+                if (entityException.EntityType == typeof(User))
+                    Title = "Пользователь с таким идентификатором не найден.";
+                else if (entityException.EntityType == typeof(User))
+                    Title = "Документ с таким идентификатором не найден.";
+                else
+                    Title = "Сущность с таким идентификатором не найдена."
+
+                return true;
+            }
         }
 
         return false;
     }
 }
+
+. . .
+
+RestError GetRestError(Exception exception)
+{
+    var acceptor = new RestErrorAcceptor();
+    exception.Visit(acceptor);
+
+    return new RestError
+    {
+        Status = acceptor.Status,
+        Errors = new[]
+        {
+            new JsonApiError { Title = acceptor.Title },
+        }
+    };
+}
 ```
 
-Метод `Accept` будет вызван для каждого исключения в дереве. Он выглядит не очень сложным, но следует иметь в виду, что полная проверка
-всех исключений сделает его большим и запутанным.
+Метод `Accept` будет вызван для каждого исключения в дереве. Результатом работы будут HTTP-статус и текстовая строка, из которой будет сформирован JSON с
+сообщением об ошибке.
+
+Нашу реализацю нельзя назвать простой. Обслуживающий код у нас небольшой, но код непосредственной проверки огромный. Его трудно расширять.
+
+Вывод: задачу решить можно, но решение нельзя назвать хорошим.
 
 ## Реализация обработки на F# #
 
-Теперь посмотрим, как та же задача решается в функциональном стиле. Мы берём дерево исключений и функцию, которая применяет набор
-*правил* к каждому исключению в дереве. Если правило *срабатывает*, то его результатом будет статус HTTP и описание ошибки.
+### Первые шаги: простые функции-правила и размеченные объединения
 
-Правило это набор условий и результат&nbsp;&mdash; код и описание. Условия (предикаты)&nbsp;&mdash; функции, которые берут исключение
-возвращают `true`, если оно удовлетворяет условию.
+Мы знаем, что функциональные программы состоят из функций. Минимальная функция в нашем случае принимает на вход исключение, пытается его распознать,
+и возвращает код статуса и сообщение в случае удачи.
+
+Результат работы такой функции можно описать с помощью *размеченного объединения*:
+
+```f#
+type Result =
+     | Parsed of HttpStatusCode * string
+     | Failed
+```
+
+Прочитать это определение типа можно так: результатом работы функции будет либо константа `Parsed` с привязанными к ней статусом и строкой, либо
+константа `Failed` без привязанных данных.
+
+Простейшая функция будет проверять, относится ли исключение к данному типу:
+
+```f#
+let matchWith exceptionType status message e =
+    if e.GetType() = exceptionType
+    then Parsed(status, message)
+    else Failed
+```
+
+Функция `matchWith` принимает на вход тип исключения `exceptionType`, статус `status`, сообщение `message` и тестируемое исключение `e`. Если
+тип исключения `e` совпадает с `exceptionType`, мы заворачиваем статус и сообщение в объект `Result`, и возвращаем. Вызывать эту функцию можно так:
+`matchWith typedefof<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e`.
+
+Поскольку F# относится к .NET, мы можем гарантировать, что `exceptionType` содержит тип исключения, сделав функцию обобщённой:
+
+```f#
+let matchWith<'E when 'E :> Exception> status message (e: Exception) =
+    if e :? 'E
+    then Parsed(status, message)
+    else Failed
+```
+
+Часто F# может вывести тип параметров функции, исследуя код, но в данном случае нам приходится уточнить, что `e` имеет тип `Exception`. В
+остальном код делает то же, что и раньше, но теперь компилятор проверяет, что тип исключения&nbsp;&mdash; наследник `Exception`. Вызывать эту
+функцию можно так: `matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e`.
+
+Функция `getRestError` будет выглядеть так:
+
+```f#
+let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
+```
+
+### Проверка свойств: комбинация функций
+
+Убедившись, что исключение имеет тип `EntityException` мы хотим проверить, что `EntityType` равно `typedefof<User>`. То есть,
+если ошибку вызывала операция с сущностью, мы хотим убедиться, что речь идёт о *Пользователе*.
+
+Для этого нам нужно взять `Result`, оставшийся после `matchWith`. Если сравнение было неудачным, мы ничего не делаем. Если
+же сравнение было удачным мы пытаемся применить предикат к исключению `e`.
+
+```f#
+let where predicate result =
+    match result with
+    | Parsed(_, _) -> if (predicate e)
+                      then result
+                      else Failed
+    | Failed -> Failed
+```
+
+Одна беда: в этом месте у нас уже нет никакого исключения `e`. Мы можем передавать его в каждую функцию, но это всегда одно и то же исключение.
+Его нужно хранить вместе с результатом обработки исключения в типе `Result`. Объявим тип обобщённым, чтобы компилятор мог выводить типы и
+проверять правильность обращения к свойствам.
+
+```f#
+type Result<'E when 'E :> Exception> =
+     | Parsed of HttpStatusCode * string * 'E
+     | Failed
+
+let matchWith<'E when 'E :> Exception> status message (e: Exception) =
+    if e :? 'E
+    then Parsed(status, message, e :?> 'E)
+    else Failed
+
+let where predicate result =
+    match result with
+    | Parsed(_, _, e) as parsed -> if (predicate e)
+                                   then parsed
+                                   else Failed
+    | Failed -> Failed
+
+let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
+                  |> where (fun e -> e.EntityType = typedefof<User>)
+```
+
+В последней строке мы обращаемся к свойству класса `EntityException`: `e.EntityType`. Мы можем это сделать из-за того, что храним
+тип исключения в `Result`, объявив тип обобщённым. Если бы `Result` оставался необобщённым, типом исключения всегда был бы базовый
+тип исключений `Exception` и мы могли бы обращаться только к его свойствам.
+
+Самое интересное решение в этом коде&nbsp;&mdash; оператор `|>`. В определении функции `where` мы указали, что она принимает два
+параметра: предикат и результат предыдущей операции. Мы видим в коде предикат, но не видим в нём результата. Результат возникает
+благодаря прямому конвейерному оператору. Вместо `f x` (вызов функции `f` с параметром `x`) мы пишем `x |> f`.
+
+Истинная мощь конвейерного оператора проявляется, когда мы используем его несколько раз, потому он и называется конвейерным. Для того
+чтобы проверить значения нескольких свойств, нам достаточно несколько раз вызвать функцию `where`:
+
+```f#
+let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
+                  |> where (fun e -> e.EntityType = typedefof<User>)
+                  |> where (fun e -> e.TargetSite.Name = "ReadById")
+```
+
+### Проверка внутренних исключений
+
