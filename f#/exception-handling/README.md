@@ -269,17 +269,24 @@ class RestErrorResult : IHttpActionResult
 
 class RestExceptionHandler : ExceptionHandler
 {
+    private readonly IRestExceptionParser parser;
+
+    public RustExceptionHandler(IRestExceptionParser parser)
+    {
+        this.parser = parser;
+    }
+
     public override void HandleCore(ExceptionHandlerContext context)
     {
-        var restError = GetRestError(context.Exception);
+        var restError = parser.Parse(context.Exception);
         context.Result = new RestErrorResult(context.ExceptionContext.Request, restError);
     }
 }
 ```
 
 Этот код решает несколько задач, поэтому выглядит сложным. Мы не будем обсуждать детали, а сразу перейдём к главному методу.
-`GetRestError` получает на вход исключение (за которым, как мы помним, прячется дерево исключений), а на выходе возвращает
-статутс HTTP и объект, который мы сериализуем в JSON.
+`IRestExceptionParser.Parse` получает на вход исключение (за которым, как мы помним, прячется дерево исключений), анализирует его,
+и возвращает статутс HTTP и объект, который мы сериализуем в JSON.
 
 ## Реализация обработки на C# #
 
@@ -380,25 +387,26 @@ class RestErrorAcceptor : Acceptor
 }
 
 . . .
-
-RestError GetRestError(Exception exception)
+class CSharpRestExceptionParser : IRestExceptionParser
 {
-    var acceptor = new RestErrorAcceptor();
-    exception.Visit(acceptor);
-
-    return new RestError
+    RestError Parse(Exception exception)
     {
-        Status = acceptor.Status,
-        Errors = new[]
+        var acceptor = new RestErrorAcceptor();
+        exception.Visit(acceptor);
+
+        return new RestError
         {
-            new JsonApiError { Title = acceptor.Title },
-        }
-    };
+            Status = acceptor.Status,
+            Errors = new[]
+            {
+                new JsonApiError { Title = acceptor.Title },
+            }
+        };
+    }
 }
 ```
 
-Метод `Accept` будет вызван для каждого исключения в дереве. Результатом работы будут HTTP-статус и текстовая строка, из которой будет сформирован JSON с
-сообщением об ошибке.
+Метод `Accept` будет вызван для каждого исключения в дереве. Результатом работы будут HTTP-статус и текстовая строка, из которой будет сформирован JSON с сообщением об ошибке.
 
 Нашу реализацю нельзя назвать простой. Обслуживающий код у нас небольшой, но код непосредственной проверки огромный. Его трудно расширять.
 
@@ -406,112 +414,285 @@ RestError GetRestError(Exception exception)
 
 ## Реализация обработки на F# #
 
-### Первые шаги: простые функции-правила и размеченные объединения
+### Первые шаги: функции-правила, тип `option`, каррирование и операторы
 
-Мы знаем, что функциональные программы состоят из функций. Минимальная функция в нашем случае принимает на вход исключение, пытается его распознать,
-и возвращает код статуса и сообщение в случае удачи.
-
-Результат работы такой функции можно описать с помощью *размеченного объединения*:
+Мы знаем, что функциональные программы состоят из функций. Наша задача&nbsp;&mdash; реализовать функцию `getRestError`, которая преобразует
+исключение в код статуса и текстовое сообщение:
 
 ```f#
-type Result =
-     | Parsed of HttpStatusCode * string
-     | Failed
+val getRestError :
+  Exception -> (HttpStatusCode * string) option
 ```
 
-Прочитать это определение типа можно так: результатом работы функции будет либо константа `Parsed` с привязанными к ней статусом и строкой, либо
-константа `Failed` без привязанных данных.
-
-Простейшая функция будет проверять, относится ли исключение к данному типу:
+Попробуем реализовать простейшее правило: если наше исключение имеет тип `EntityException`, мы вернём статус `HttpStatusCode.BadRequest` и сообщение
+`"Случилось страшное."`.
 
 ```f#
-let matchWith exceptionType status message e =
-    if e.GetType() = exceptionType
-    then Parsed(status, message)
-    else Failed
+let matchWith exceptionType e = if e.GetType() = exceptionType
+                                then Some e
+                                else None
+
+let result status message condition e =
+    match (condition e) with
+    | Some _ -> Some(status, message)
+    | None -> None
+
+let getRestError = result HttpStatusCode.BadRequest "Случилось страшное" (matchWith typedefof<EntityException>)
 ```
 
-Функция `matchWith` принимает на вход тип исключения `exceptionType`, статус `status`, сообщение `message` и тестируемое исключение `e`. Если
-тип исключения `e` совпадает с `exceptionType`, мы заворачиваем статус и сообщение в объект `Result`, и возвращаем. Вызывать эту функцию можно так:
-`matchWith typedefof<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e`.
+Мы разбили наше *правило* на *условие* и *результат*. Функции `matchWith` и `result` можно было бы слить в одну: *условие-и-сразу-результат*,
+но мы знаем, что условий в наших правилах будет несколько, а результат только один. Заранее подстелим соломки, и сделаем их независимыми функциями.
 
-Поскольку F# относится к .NET, мы можем гарантировать, что `exceptionType` содержит тип исключения, сделав функцию обобщённой:
+Функция `matchWith` возвращает значения `Some` и `None`. Они принадлежат типу `option`, который описывает опциональное значение. В языке C#
+к нему близок тип `Nullable<T>`, но в F# `option` имеет универсальный характер, и может относиться к любому типу данных, а не только
+к `ValueType`.
+
+Функция `result` получает на вход условие и исключение: если условие срабатывает, она возвращает заданные статус и сообщение. Обратите внимание на то,
+как мы используем *каррирование*. Функция `matchWith` должна получать два параметра, но мы передали ей только один. F#
+создаёт в этом месте функцию, которой недостаёт только одного параметра типа `Exception`:
 
 ```f#
-let matchWith<'E when 'E :> Exception> status message (e: Exception) =
+let __hidden_autogenerated_function e = matchWith typedefof<EntityException> e
+let getRestError = result HttpStatusCode.BadRequest "Случилось страшное" __hidden_autogenerated_function
+```
+
+Оставшийся параметр `e` в `matchWith` передаёт уже `result`, это выглядит как вызов функции-параметра `condition` со значением-параметром `e`.
+
+Если условие не сработало, результатом правила будет значение `None`. В этом случае мы хотим испытать следующее правило, и для этого нам потребуется реализовать *цепочку* правил.
+В лексических и синтаксических анализаторах такие цепочки записывают в виде `rule1 | rule2 | rule3`. F# позволяет нам определить собственный оператор,
+который, правда, не должен совпадать с существующими операторами языка.
+
+```f#
+let (<|>) rule1 rule2 e =
+    match rule1 e with
+    | Some(_, _) as result -> result
+    | None -> rule2 e
+```
+
+Оператора `<|>` в F# нет, поэтому мы можем использовать эту последовательность символов.
+
+```f#
+let getRestError = result HttpStatusCode.BadRequest "Случилось страшное." (matchWith typedefof<EntityException>)
+               <|> result HttpStatusCode.BadRequest "Свершилось непоправимое." (matchWith typedefof<InvalidOperationException>)
+```
+
+С учётом каррирования эта запись означает, что `getRestError` вызовет первое правило со своим параметром `e`, и, если оно
+не сработает, вызовет второе правило, которое всегда возвращает значение.
+
+### Наводим красоту: композиция функций
+
+В F# вызов функции записывается как `f x`. Благодаря прямому конвейерному оператору `|>` его можно переписать в виде `x |> f`.
+Когда речь идёт о композиции функций `h (g (f x))`, запись превращается в `x |> f |> g |> h`. `h (g (f x))` означает, что `h` вызывает `g`,
+которая вызывает `f` с параметром `x`.
+
+Тема композиции функций очень интересная, но у нас обзорная лекция, поэтому мы просто используем такую возможность для того, чтобы упростить код.
+
+```f#
+let getRestError = (matchWith typedefof<EntityException>
+                |> result HttpStatusCode.BadRequest "Случилось страшное.")
+
+               <|> (matchWith typedefof<InvalidOperationException>
+                |> result HttpStatusCode.BadRequest "Свершилось непоправимое.")
+```
+
+Из-за приоритетов операторов нам прихошлось поместить правила в скобки, но это не ухудшило читаемость кода.
+
+### Уточняющие условия: обобщённые типы
+
+Убедившись, что исключение имеет тип `EntityException`, мы иногда будем накладывать дополнительные проверки. У `EntityException`
+есть свойство `EntityType`, благодаря которому мы можем фильтровать ошибки, возникшие  при работе только с сущностями типа `User`.
+
+Мы напишем функцию `where` для уточнения условий:
+
+```f#
+let where predicate condition (e: Exception) =
+    match (condition e) with
+    | Some e -> if (predicate e) then Some e else None
+    | None -> None
+```
+
+К сожалению, она может работать только с одним типом исключений, и в качестве такого типа естественно использовать корневое исключение `Exception`.
+Мы можем привести исключение к нужному типу, и проверить нужное свойство:
+
+```f#
+let getRestError = matchWith typedefof<EntityException>
+                |> where (fun e -> (e :?> EntityException).EntityType = typedefof<User>)
+                |> result HttpStatusCode.BadRequest "Случилось страшное."
+
+               ||| result HttpStatusCode.InternalServerError "Гипс снимают, клиент уезжает." Some
+```
+
+Обратите внимание на то, как здесь естественным образом используется конвейерный оператор. Но вот приведение типов не выглядит
+удобным, тем более, что тип `EntityException` уже указан нами при вызове `matchWith`. Поскольку речь идёт о .NET, мы можем
+задействовать обобщённые типы.
+
+Нам достаточно переписать функции `matchWith` и `where`:
+
+```f#
+let matchWith<'E when 'E :> Exception> (e: Exception) =
     if e :? 'E
-    then Parsed(status, message)
-    else Failed
+    then Some (e :?> 'E)
+    else None
+
+let where<'E when 'E :> Exception> predicate condition (e: Exception) =
+    match (condition e) with
+    | Some e -> if (predicate e)
+                then Some e
+                else None
+    | None -> None
 ```
 
-Часто F# может вывести тип параметров функции, исследуя код, но в данном случае нам приходится уточнить, что `e` имеет тип `Exception`. В
-остальном код делает то же, что и раньше, но теперь компилятор проверяет, что тип исключения&nbsp;&mdash; наследник `Exception`. Вызывать эту
-функцию можно так: `matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e`.
-
-Функция `getRestError` будет выглядеть так:
+Проверка дополнительных условий стала проще:
 
 ```f#
-let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
-```
+let getRestError = matchWith<EntityException>
+                |> where (fun e -> e.EntityType = typedefof<User>)
+                |> result HttpStatusCode.BadRequest "Случилось страшное."
 
-### Проверка свойств: комбинация функций
-
-Убедившись, что исключение имеет тип `EntityException` мы хотим проверить, что `EntityType` равно `typedefof<User>`. То есть,
-если ошибку вызывала операция с сущностью, мы хотим убедиться, что речь идёт о *Пользователе*.
-
-Для этого нам нужно взять `Result`, оставшийся после `matchWith`. Если сравнение было неудачным, мы ничего не делаем. Если
-же сравнение было удачным мы пытаемся применить предикат к исключению `e`.
-
-```f#
-let where predicate result =
-    match result with
-    | Parsed(_, _) -> if (predicate e)
-                      then result
-                      else Failed
-    | Failed -> Failed
-```
-
-Одна беда: в этом месте у нас уже нет никакого исключения `e`. Мы можем передавать его в каждую функцию, но это всегда одно и то же исключение.
-Его нужно хранить вместе с результатом обработки исключения в типе `Result`. Объявим тип обобщённым, чтобы компилятор мог выводить типы и
-проверять правильность обращения к свойствам.
-
-```f#
-type Result<'E when 'E :> Exception> =
-     | Parsed of HttpStatusCode * string * 'E
-     | Failed
-
-let matchWith<'E when 'E :> Exception> status message (e: Exception) =
-    if e :? 'E
-    then Parsed(status, message, e :?> 'E)
-    else Failed
-
-let where predicate result =
-    match result with
-    | Parsed(_, _, e) as parsed -> if (predicate e)
-                                   then parsed
-                                   else Failed
-    | Failed -> Failed
-
-let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
-                  |> where (fun e -> e.EntityType = typedefof<User>)
-```
-
-В последней строке мы обращаемся к свойству класса `EntityException`: `e.EntityType`. Мы можем это сделать из-за того, что храним
-тип исключения в `Result`, объявив тип обобщённым. Если бы `Result` оставался необобщённым, типом исключения всегда был бы базовый
-тип исключений `Exception` и мы могли бы обращаться только к его свойствам.
-
-Самое интересное решение в этом коде&nbsp;&mdash; оператор `|>`. В определении функции `where` мы указали, что она принимает два
-параметра: предикат и результат предыдущей операции. Мы видим в коде предикат, но не видим в нём результата. Результат возникает
-благодаря прямому конвейерному оператору. Вместо `f x` (вызов функции `f` с параметром `x`) мы пишем `x |> f`.
-
-Истинная мощь конвейерного оператора проявляется, когда мы используем его несколько раз, потому он и называется конвейерным. Для того
-чтобы проверить значения нескольких свойств, нам достаточно несколько раз вызвать функцию `where`:
-
-```f#
-let getRestError e = matchWith<EntityException> HttpStatusCode.BadRequest "Случилось страшное" e
-                  |> where (fun e -> e.EntityType = typedefof<User>)
-                  |> where (fun e -> e.TargetSite.Name = "ReadById")
+               <|> result HttpStatusCode.InternalServerError "Гипс снимают, клиент уезжает." Some
 ```
 
 ### Проверка внутренних исключений
 
+Как и в C#, мы хотим проверять дочерние исключения, чтобы точно идентифицировать причину ошибки.
+Функция должна быть похожа на `matchWith`, поскольку она получает исключение, и проверяет его тип. С другой стороны,
+её нужно встраивать в конвейер, как и `where`:
+
+```f#
+let inner<'E1, 'E2 when 'E1 :> exn and 'E2 :> exn> (condition: 'E1 -> 'E1 option) (e: 'E1) =
+    match (condition e) with
+    | Some e' -> if e'.InnerException :? 'E2
+                 then Some (e'.InnerException :?> 'E2)
+                 else None
+    | None -> None
+```
+
+Здесь мы снова видим странный синтаксис F#, но общее направление мысли нам понятно. На входе у нас опциональное исключение,
+и если у него есть значение, а у значения тип свойства `InnerException` совпадает с `E2`, то мы возвращаем дочернее исключение.
+
+Чтобы функция могла искать внутренние исключения в `AggregateException` её следует дописать:
+
+```f#
+let inner<'E1, 'E2 when 'E1 :> exn and 'E2 :> exn> (condition: 'E1 -> 'E1 option) (e: 'E1) =
+    match (condition e) with
+    | Some e' -> if (box e' :? AggregateException)
+                 then let found = Seq.tryFind (fun ie -> box ie :? 'E2) (box e' :?> AggregateException).InnerExceptions
+                      match found with
+                      | Some ie -> Some (ie :?> 'E2)
+                      | None -> None
+                 else let ie = e'.InnerException
+                      match ie with
+                      | :? 'E2 -> Some (ie :?> 'E2)
+                      | _ -> None
+    | None -> None
+```
+
+Код кажется громоздким. Проведём небольшой рефакторинг, чтобы выделить значимые части код в функции с говорящими именами:
+
+```f#
+let inner<'E1, 'E2 when 'E1 :> exn and 'E2 :> exn> (condition: 'E1 -> 'E1 option) (e: 'E1) =
+    let tryFindInAggregate (ae: AggregateException) =
+        let found = Seq.tryFind (fun ie -> box ie :? 'E2) ae.InnerExceptions
+        match found with
+        | Some ie -> Some (ie :?> 'E2)
+        | None -> None
+
+    let tryFindInInner (e: exn) =
+        let ie = e.InnerException
+        match ie with
+        | :? 'E2 -> Some (ie :?> 'E2)
+        | _ -> None
+
+    match (condition e) with
+    | Some e' -> if (box e' :? AggregateException)
+                 then tryFindInAggregate (box e' :?> AggregateException)
+                 else tryFindInInner e'
+    | None -> None
+```
+
+Вызов метода `inner` выглядит так:
+
+```f#
+let getRestError = (matchWith<EntityException>
+                 |> where (fun e -> e.EntityType = typedefof<User>)
+                 |> inner<EntityException, InvalidOperationException>
+                 |> result HttpStatusCode.BadRequest "Случилось страшное.")
+```
+
+Это правило совпадает с любым исключением, тип которого `EntityException`, а значение свойства `EntityType` соответствует `User`,
+при этом тип внутреннего исключения&nbsp;&mdash; `InvalidOperationException`.
+
+К сожалению, при вызове функции `inner` нам приходится указывать два типа исключений, хотя от родительского хотелось бы отказаться.
+Возможно, в будущем авторы компилятора позволят указывать типы-параметры частично, но пока это не так. В C# существует
+та же проблема.
+
+Кажется также, что чисто теоретически проблема решилась бы, будь в F# реализована поддержка контравариантности, но судя по
+[записям в интернетах](https://fslang.uservoice.com/forums/245727-f-language/suggestions/5663470-provide-covariance-contravariance-language-support), это не так.
+
+В некоторых сценариях нам захочется проверять значения свойств внутреннего исключения. Для этого придётся расширить сигнатуру функции `where`:
+
+```f#
+let where<'E1, 'E2 when 'E1 :> exn and 'E2 :> exn> predicate (condition: 'E1 -> 'E2 option) (e: 'E1) =
+    match (condition e) with
+    | Some e' as result -> if (predicate e')
+                           then result
+                           else None
+    | None -> None
+```
+
+Теперь наш свод правил выглядит так:
+
+```f#
+let getRestError = (matchWith<EntityException>
+                 |> where (fun e -> e.EntityType = typedefof<User>)
+                 |> inner<EntityException, InvalidOperationException>
+                 |> result HttpStatusCode.BadRequest "Случилось страшное.")
+
+               <|> (matchWith<EntityException>
+                 |> where (fun e -> e.EntityType = typedefof<Document>)
+                 |> inner<EntityException, SqlException>
+                 |> where (fun e -> e.Number = 2601)
+                 |> result HttpStatusCode.Conflict "Пользователь с таким электронным адресом уже существует.")
+```
+
+Смотрите, как мы проверяем значение свойства `Number` у внутреннего исключения типа `SqlException`.
+
+### Сводим вместе
+
+Нам осталось решить две задачи. Первая связана с тем, что набор правил надо применить к каждому исключению в дереве.
+
+```f#
+let rec getInners (rootException: exn) =
+    match rootException with
+    | :? AggregateException as ae -> let inners = Seq.toList ae.InnerExceptions
+                                     List.concat (List.map (fun ie -> getInners ie) inners)
+    | null -> []
+    | e -> e::getInners e.InnerException
+
+let parse e = 
+    let inners = getInners e
+    let rec parse' es =
+        match es with
+        | [] -> None
+        | e::es -> match getRestError e with
+                   | Some(status, message) -> Some(status, message)
+                   | None -> parse' es
+    parse' inners
+```
+
+На счастье, такие задачи прекрасно решаются на функциональных языках.
+
+Последняя задача: интегрировать наше решение в проект, написанный на C#:
+
+```f#
+type FSharpRestExceptionParser =
+     interface IRestExceptionParser with
+               member this.Parse(e: exn) = 
+                      match parse e with
+                      | Some(status, message) -> (status, message)
+                      | None -> (HttpStatusCode.InternalServerError, "Гипс снимают, клиент уезжает.")
+```
+
+На что следует обратить внимание? Первое: набор правил понятен даже при беглом изучении. Человек, ничего не знающий про наши функции, сможет понять и даже изменить правила.
+Второе: код проще аналогичного кода на C#. Там поиск правильного места для внесения изменений занимает больше времени. Нам помогает декларативный
+синтаксис функционального языка. Третье: обслуживающий код тоже проще, чем аналогичный код на C#, где мы используем паттерн *Посетитель*.
