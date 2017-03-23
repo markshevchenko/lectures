@@ -46,14 +46,14 @@ int main(int argc, char *argv[])
 
 #define BUFFER_SIZE 1024
 
-int count_string(char* string, char* filename)
+int count_string(char* s, char* filename)
 {
   int count = 0;
   int eof = 0;
   char buffer[BUFFER_SIZE];
   FILE* input;
 
-  if (NULL == string)
+  if (NULL == s)
     return -1;
 
   if (NULL == filename)
@@ -65,7 +65,7 @@ int count_string(char* string, char* filename)
     return -3;
 
   while (NULL != fgets(buffer, BUFFER_SIZE, input)) {
-    if (NULL != strstr(buffer, string))
+    if (NULL != strstr(buffer, s))
       count++;
   }
 
@@ -80,6 +80,24 @@ int count_string(char* string, char* filename)
 ```
 
 Видим, что код получился большой и запутанный. Это потому, что у нас учебный пример. В реальной программе код будет ещё запутанней.
+
+В языке с исключениями функция `count_string` выглядит так:
+
+```c++
+int count_string(const string& s, const string& filename)
+{
+  int count = 0;
+  string line;
+  ifstream input(filename);
+    
+  while (getline(input, line)) {
+    if (line.find(s) != string::npos)
+      count++;
+  }
+  
+  return count;
+}
+```
 
 Как нам помогают *исключения*? Они позволяют не писать промежуточный код. Функции не должны больше ничего возвращать, если это не обусловлено их логикой.
 Функции, которые возвращают результаты, не должны больше смешивать их в странных комбинациях с кодами ошибок.
